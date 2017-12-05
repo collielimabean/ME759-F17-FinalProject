@@ -7,7 +7,7 @@ project(DistributedTaskLibrary C CXX)
 set(CMAKE_VERBOSE_MAKEFILE OFF)
 
 # any additional packages here #
-# find_package(Threads REQUIRED)
+find_package(Threads REQUIRED)
 
 # require C++11 support #
 set(CMAKE_CXX_STANDARD 11)
@@ -41,4 +41,6 @@ elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
 endif()
 
 # set include directories here #
-include_directories(.)
+include_directories(include/)
+file(GLOB DTL_SRC src/*.cpp include/*.hpp)
+add_executable("dtl-test.exe" examples/main.cpp ${DTL_SRC})
