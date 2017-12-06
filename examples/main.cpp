@@ -14,11 +14,16 @@ void jobB(std::shared_ptr<Task> parent)
 void jobA(std::shared_ptr<Task> parent)
 {
     std::cout << "Entered jobA, parent is: " << (parent ? parent->GetName() : "null") << std::endl;
+    for (int i = 0; i < 3; i++)
+    {
+        std::cout << "Iteration " << i << std::endl;
+        auto child = Task::Create(parent, TaskLocation::Host, jobB);
+        child->Run();
+        parent->Synchronize();
+        std::cout << "-------" << std::endl;
+    }
 
-    auto child = Task::Create(parent, TaskLocation::Host, jobB);
-    child->Run();
-
-
+    std::cout << "Loop complete" << std::endl;
 }
 
 
