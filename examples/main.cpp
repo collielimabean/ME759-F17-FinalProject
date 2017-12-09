@@ -17,7 +17,7 @@ void jobA(std::shared_ptr<Task> parent)
     for (int i = 0; i < 3; i++)
     {
         std::cout << "Iteration " << i << std::endl;
-        auto child = Task::Create(parent, TaskLocation::Host, jobB);
+        auto child = Task::Create("jobB", parent, TaskLocation::Host, jobB);
         child->Run();
         parent->Synchronize();
         std::cout << "-------" << std::endl;
@@ -29,8 +29,7 @@ void jobA(std::shared_ptr<Task> parent)
 
 int main(void)
 {
-    srand(time(nullptr));
-    auto startingTask = Task::Create(nullptr, TaskLocation::Host, jobA);
+    auto startingTask = Task::Create("jobA", nullptr, TaskLocation::Host, jobA);
     startingTask->Run();
 
     char x;

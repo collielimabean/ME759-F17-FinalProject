@@ -27,12 +27,12 @@ namespace dtl
     {
     public:
 
-        static std::shared_ptr<Task> Create(std::shared_ptr<Task> parent, TaskLocation location, const std::function<void(std::shared_ptr<Task>)>& f)
+        static std::shared_ptr<Task> Create(const std::string& name, std::shared_ptr<Task> parent, TaskLocation location, const std::function<void(std::shared_ptr<Task>)>& f)
         {
             if (parent)
-                return parent->AddChildTask(location, f);
+                return parent->AddChildTask(name, location, f);
             else
-                return std::shared_ptr<Task>(new Task(nullptr, location, f));
+                return std::shared_ptr<Task>(new Task(name, nullptr, location, f));
         }
 
         void Run()
@@ -75,13 +75,9 @@ namespace dtl
         }
 
     private:
-        static std::atomic_int64_t gTaskId;
-
-        Task(std::shared_ptr<Task> parent, TaskLocation location, const std::function<void(std::shared_ptr<Task>)>& function)
+        Task(const std::string& name, std::shared_ptr<Task> parent, TaskLocation location, const std::function<void(std::shared_ptr<Task>)>& function)
         {
-            this->task_name = std::to_string(gTaskId.load());
-            gTaskId++;
-
+            this->task_name = name;
             this->parentTask = parent;
             this->status = TaskStatus::Init;
             this->location = location;
@@ -89,9 +85,9 @@ namespace dtl
             this->childrenComplete = true; // no children - empty //
         }
 
-        std::shared_ptr<Task> AddChildTask(TaskLocation loc, const std::function<void(std::shared_ptr<Task>)>& f)
+        std::shared_ptr<Task> AddChildTask(const std::string& name, TaskLocation loc, const std::function<void(std::shared_ptr<Task>)>& f)
         {
-            std::shared_ptr<Task> new_task(new Task(shared_from_this(), loc, f));
+            std::shared_ptr<Task> new_task(new Task(name, shared_from_this(), loc, f));
             this->childrenTasks.push_back(new_task);
             this->childrenComplete = false;
             return new_task;
@@ -150,6 +146,4 @@ namespace dtl
         std::vector<std::shared_ptr<Task>> childrenTasks;
         std::function<void(std::shared_ptr<Task>)> function;
     };
-
-    std::atomic_int64_t Task::gTaskId = 0;
 }

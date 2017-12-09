@@ -43,4 +43,4 @@ endif()
 # set include directories here #
 include_directories(include/)
 file(GLOB DTL_SRC src/*.cpp include/*.hpp)
-add_executable("dtl-test.exe" examples/main.cpp ${DTL_SRC})
+add_executable("dtl-test" examples/main.cpp ${DTL_SRC})
