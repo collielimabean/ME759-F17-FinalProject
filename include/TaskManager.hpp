@@ -5,8 +5,8 @@
 #include <thread>
 #include <string>
 #include <memory>
-#include <google/protobuf/message.h>
 #include "MpiContext.hpp"
+#include <vector>
 
 namespace dtl
 {

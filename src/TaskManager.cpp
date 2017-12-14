@@ -2,16 +2,12 @@
 #include <algorithm>
 #include <cuda_runtime.h>
 #include "commands.pb.h"
+#include "Packets.hpp"
 #include <mutex>
 
-
 using namespace dtl;
+using namespace dtl::packets;
 
-constexpr const int TerminateAllChildrenRequest_Opcode = 0xA0;
-constexpr const int TerminateAllChildrenResponse_Opcode = 0xA1;
-constexpr const int IssueTaskRequest_Opcode = 0xA2;
-constexpr const int ChildSetInfo_Opcode = 0xA3;
-constexpr const int ChildComplete_Opcode = 0xA4;
 
 TaskManager& TaskManager::GetInstance(const std::string& name, int argc, char **argv)
 {
@@ -119,27 +115,26 @@ bool TaskManager::SpawnChildNode(
     children.push_back(new_node);
 
     // set name //
-    packets::ChildSetInfo csi;
-    csi.set_opcode(ChildSetInfo_Opcode);
-    csi.set_name(name);
+    SerializedPacket csiPkt;
+    auto csi = GetChildSetInfoPacket(name);
+    if (!SerializePacket(csi, csiPkt))
+    {
+        std::cout << "[master] Failed to make CSI packet." << std::endl;
+        return false;
+    }
 
-    char *csi_buffer = new char[csi.ByteSize()];
-    csi.SerializeToArray(csi_buffer, csi.ByteSize());
-    MPI_Ssend(csi_buffer, csi.ByteSize(), MPI_CHAR, 0, 0, child);
-    delete[] csi_buffer;
+    MPI_Ssend(csiPkt.data, csiPkt.size, MPI_CHAR, 0, 0, child);
 
     // send function //
-    packets::IssueTaskRequest request;
-    request.set_opcode(IssueTaskRequest_Opcode);
-    request.set_name(name);
-    request.set_function(fn_name);
-    request.set_needsgpu(needs_gpu);
-    request.set_hasparameters(has_parameters);
+    SerializedPacket itrPkt;
+    auto itr = GetIssueTaskRequest(name, fn_name, needs_gpu, has_parameters);
+    if (!SerializePacket(itr, itrPkt))
+    {
+        std::cout << "[master] Failed to make ITR packet." << std::endl;
+        return false;
+    }
 
-    char *fn_buffer = new char[request.ByteSize()];
-    request.SerializeToArray(fn_buffer, request.ByteSize());
-    MPI_Ssend(fn_buffer, request.ByteSize(), MPI_CHAR, 0, 0, child);
-    delete[] fn_buffer;
+    MPI_Ssend(itrPkt.data, itrPkt.size, MPI_CHAR, 0, 0, child);
 
     // send data //
     if (data)
@@ -180,12 +175,12 @@ void TaskManager::RunChildRoutine()
         packets::TerminateAllChildrenRequest tacr;
         packets::IssueTaskRequest itr;
 
-        if (csi.ParseFromArray(buffer, sz) && csi.opcode() == ChildSetInfo_Opcode)
+        if (ParseChildSetInfoPacket(buffer, sz, csi))
         {
             std::cout << "[" << name << "] CSI msg received w/name: " << csi.name() << std::endl;
             this->name = csi.name();
         }
-        else if (itr.ParseFromArray(buffer, sz) && itr.opcode() == IssueTaskRequest_Opcode)
+        else if (ParseIssueTaskRequestPacket(buffer, sz, itr))
         {
             std::cout << "[" << name << "] ITR name: "
                 << itr.name() << " "
@@ -230,7 +225,7 @@ void TaskManager::RunChildRoutine()
                     delete[] buffer;
             }
         }
-        else if (tacr.ParseFromArray(buffer, sz) && tacr.opcode() == TerminateAllChildrenRequest_Opcode)
+        else if (ParseTerminateAllChildrenRequestPacket(buffer, sz, tacr))
         {
             // kill currently running task //
             std::cout << "[" << name << "] stopping..." << std::endl;
@@ -315,11 +310,11 @@ void TaskManager::ListenOnChildren()
             packets::ChildComplete ccPkt;
             packets::TerminateAllChildrenResponse tacr;
 
-            if (ccPkt.ParseFromArray(buffer, sz) && ccPkt.opcode() == ChildComplete_Opcode)
+            if (ParseChildCompletePacket(buffer, sz, ccPkt))
             {
                 child.status = ChildStatus::Idle;
             }
-            else if (tacr.ParseFromArray(buffer, sz) && tacr.opcode() == TerminateAllChildrenResponse_Opcode)
+            else if (ParseTerminateAllChildrenResponsePacket(buffer, sz, tacr))
             {
                 std::cout << "[Master] " << child.name << " marked as terminated." << std::endl;
                 child.status = ChildStatus::Terminated;
@@ -363,11 +358,16 @@ void TaskManager::TerminateChildren()
             if (child.status == ChildStatus::Terminated)
                 continue;
     
-            char buffer[32];
-            packets::TerminateAllChildrenRequest tacr;
-            tacr.set_opcode(TerminateAllChildrenRequest_Opcode);
-            tacr.SerializeToArray(buffer, 32);
-            MPI_Send(buffer, tacr.ByteSize(), MPI_CHAR, 0, 0, child.comm);
+            SerializedPacket pkt;
+            auto tacr = GetTerminateAllChildrenRequestPacket();
+
+            if (!SerializePacket(tacr, pkt))
+            {
+                std::cout << "[master] failed to init terminate all children req" << std::endl;
+                return;
+            }
+
+            MPI_Send(pkt.data, pkt.size, MPI_CHAR, 0, 0, child.comm);
         }
 
         bool all_children_terminated = std::all_of(

@@ -4,14 +4,16 @@ package dtl.packets;
 
 message ChildInfoRequest
 {
+    required int32 opcode = 1;
 }
 
 message ChildInfoResponse
 {
-    required string name = 1;
-    required int32 status = 2;    
-    required string currentFn = 3;
-    required bool hasGPU = 4;
+    required int32 opcode = 1;
+    required string name = 2;
+    required int32 status = 3;    
+    required string currentFn = 4;
+    required bool hasGPU = 5;
 }
 
 message ChildComplete
@@ -37,7 +39,9 @@ message IssueTaskRequest
 
 message IssueTaskResponse
 {
-    required bool accepted = 1;
+    required int32 opcode = 1;
+    required string name = 2;
+    required bool accepted = 3;
 }
 
 message TerminateAllChildrenRequest
