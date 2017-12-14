@@ -8,9 +8,10 @@
 using namespace dtl;
 
 constexpr const int TerminateAllChildrenRequest_Opcode = 0xA0;
-constexpr const int IssueTaskRequest_Opcode = 0xA1;
-constexpr const int ChildSetInfo_Opcode = 0xA2;
-
+constexpr const int TerminateAllChildrenResponse_Opcode = 0xA1;
+constexpr const int IssueTaskRequest_Opcode = 0xA2;
+constexpr const int ChildSetInfo_Opcode = 0xA3;
+constexpr const int ChildComplete_Opcode = 0xA4;
 
 TaskManager& TaskManager::GetInstance(const std::string& name, int argc, char **argv)
 {
@@ -33,7 +34,9 @@ TaskManager::TaskManager(const std::string& name, int argc, char **argv)
 
 TaskManager::~TaskManager()
 {
-
+    childListenerRunning = false;
+    if (childListenerThread.joinable())
+        childListenerThread.join();
 }
 
 void TaskManager::SetName(const std::string& new_name)
@@ -230,8 +233,16 @@ void TaskManager::RunChildRoutine()
         else if (tacr.ParseFromArray(buffer, sz) && tacr.opcode() == TerminateAllChildrenRequest_Opcode)
         {
             // kill currently running task //
-            std::cout << "[" << name << "] Terminate msg received" << std::endl;
             std::cout << "[" << name << "] stopping..." << std::endl;
+
+            packets::TerminateAllChildrenResponse tac_response;
+            tac_response.set_opcode(TerminateAllChildrenResponse_Opcode);
+            tac_response.set_name(name);
+            char *tac_response_buffer = new char[tac_response.ByteSize()];
+            tac_response.SerializeToArray(tac_response_buffer, tac_response.ByteSize());
+            MPI_Send(tac_response_buffer, tac_response.ByteSize(), MPI_CHAR, 0, 0, parentComm);
+            delete[] tac_response_buffer;
+            
             childThreadRunning = false;
             continue;
         }
@@ -304,11 +315,11 @@ void TaskManager::ListenOnChildren()
             packets::ChildComplete ccPkt;
             packets::TerminateAllChildrenResponse tacr;
 
-            if (ccPkt.ParseFromArray(buffer, sz))
+            if (ccPkt.ParseFromArray(buffer, sz) && ccPkt.opcode() == ChildComplete_Opcode)
             {
                 child.status = ChildStatus::Idle;
             }
-            else if (tacr.ParseFromArray(buffer, sz))
+            else if (tacr.ParseFromArray(buffer, sz) && tacr.opcode() == TerminateAllChildrenResponse_Opcode)
             {
                 std::cout << "[Master] " << child.name << " marked as terminated." << std::endl;
                 child.status = ChildStatus::Terminated;
@@ -371,5 +382,6 @@ void TaskManager::TerminateChildren()
         std::this_thread::sleep_for(std::chrono::milliseconds(100));    
     }
 
+    childListenerRunning = false;
     std::cout << "termination done." << std::endl;
 }

@@ -16,7 +16,8 @@ message ChildInfoResponse
 
 message ChildComplete
 {
-    required string name = 1;
+    required int32 opcode = 1;
+    required string name = 2;
 }
 
 message ChildSetInfo
@@ -46,5 +47,6 @@ message TerminateAllChildrenRequest
 
 message TerminateAllChildrenResponse
 {
-    required string name = 1;
+    required int32 opcode = 1;
+    required string name = 2;
 }
