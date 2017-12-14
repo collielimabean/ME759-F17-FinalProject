@@ -8,6 +8,11 @@
 using namespace dtl;
 using namespace dtl::packets;
 
+/**
+ * TODO: Wrapper functions over MPI_Probe + MPI_Recv 
+ * TODO: Ensure no arbitrary hardcoded buffers 
+ */
+
 
 TaskManager& TaskManager::GetInstance(const std::string& name, int argc, char **argv)
 {
@@ -78,18 +83,70 @@ void TaskManager::SetPacketCallback(CustomPacketHandler handler)
     this->userPacketHandler = handler;
 }
 
-bool TaskManager::SpawnChildNode(
-    const std::string& name,
+bool TaskManager::IssueJob(
+    const std::string& node_name,
     const std::string& fn_name,
     void *data,
     size_t len,
     bool has_parameters,
-    bool needs_gpu)
+    bool needs_gpu,
+    bool spawn_new_node
+)
 {
     if (!is_master)
         return false;
 
     if (!has_parameters && (data || len > 0))
+        return false;
+
+    // search current list for anyone who can fulfill //
+    for (auto& child : children)
+    {
+        // send function //
+        SerializedPacket itrPkt;
+        auto itr = GetIssueTaskRequest(node_name, fn_name, needs_gpu, has_parameters);
+        if (!SerializePacket(itr, itrPkt))
+        {
+            std::cout << "[master] Failed to make ITR packet." << std::endl;
+            return false;
+        }
+
+        MPI_Ssend(itrPkt.data, itrPkt.size, MPI_CHAR, 0, 0, child.comm);
+
+        // can this node do it? //
+        // since we have a dedicated thread listening on our children,
+        // we need to use a condition variable and go to sleep
+
+        // set up condition variable
+        issueJobDone = false;
+
+        std::mutex m;
+        auto& _local_issueJobDone = this->issueJobDone;
+        std::unique_lock<std::mutex> lk(m);
+        issueJobCV.wait(lk, [&_local_issueJobDone] { return _local_issueJobDone; });
+
+        std::cout << "wait complete!" << std::endl;
+
+        if (!childCanDoTask)
+            continue;
+
+        // send data //
+        if (data)
+            MPI_Ssend(data, len, MPI_CHAR, 0, 0, child.comm);
+    }
+
+    if (spawn_new_node)
+    {
+        // XXX TODO
+    }
+
+    return true;
+}
+
+
+bool TaskManager::SpawnChildNode(const std::string& name)
+{
+    if (!is_master)
         return false;
 
     if (!childListenerRunning)
@@ -99,18 +156,15 @@ bool TaskManager::SpawnChildNode(
         childListenerThread = std::thread(&TaskManager::ListenOnChildren, this);
     }
 
-    // XXX: search current list for anyone who can fulfill //
-
     // spawn new node //
     MPI_Comm child;
-    int err[1];
 
-    MPI_Comm_spawn(program_name.c_str(), MPI_ARGV_NULL, 1, MPI_INFO_NULL, 0, MPI_COMM_SELF, &child, err);
+    MPI_Comm_spawn(program_name.c_str(), MPI_ARGV_NULL, 1, MPI_INFO_NULL, 0, MPI_COMM_SELF, &child, MPI_ERRCODES_IGNORE);
 
     // add child to internal tracker //
     ChildNode new_node;
     new_node.name = name;
-    new_node.status = ChildStatus::Running; // XXX: HACK
+    new_node.status = ChildStatus::Idle;
     new_node.comm = child;
     children.push_back(new_node);
 
@@ -124,21 +178,6 @@ bool TaskManager::SpawnChildNode(
     }
 
     MPI_Ssend(csiPkt.data, csiPkt.size, MPI_CHAR, 0, 0, child);
-
-    // send function //
-    SerializedPacket itrPkt;
-    auto itr = GetIssueTaskRequest(name, fn_name, needs_gpu, has_parameters);
-    if (!SerializePacket(itr, itrPkt))
-    {
-        std::cout << "[master] Failed to make ITR packet." << std::endl;
-        return false;
-    }
-
-    MPI_Ssend(itrPkt.data, itrPkt.size, MPI_CHAR, 0, 0, child);
-
-    // send data //
-    if (data)
-        MPI_Ssend(data, len, MPI_CHAR, 0, 0, child);
     return true;
 }
 
@@ -171,9 +210,9 @@ void TaskManager::RunChildRoutine()
         MPI_Get_count(&mpi_status, MPI_CHAR, &sz);
 
         // initialize all packet types //
-        packets::ChildSetInfo csi;
-        packets::TerminateAllChildrenRequest tacr;
-        packets::IssueTaskRequest itr;
+        ChildSetInfo csi;
+        TerminateAllChildrenRequest tacr;
+        IssueTaskRequest itr;
 
         if (ParseChildSetInfoPacket(buffer, sz, csi))
         {
@@ -188,56 +227,65 @@ void TaskManager::RunChildRoutine()
                 << itr.needsgpu() << " "
                 << itr.hasparameters() << std::endl;
 
-            if ((name.compare(itr.name()) != 0 && name.length() != 0) 
+            bool can_execute = (name.compare(itr.name()) != 0 && name.length() != 0)
                 || fnMap.find(itr.function()) == fnMap.end()
-                || itr.needsgpu() && HasGPU())
+                || itr.needsgpu() && HasGPU();
+
+            // notify parent //
+            SerializedPacket pkt;
+            auto response = GetIssueTaskResponse(name, can_execute);
+            if (!SerializePacket(response, pkt))
+            {
+                std::cout << "[" << name << "] failed to serialize ITR response." << std::endl;
+                continue;
+            }
+            MPI_Send(pkt.data, pkt.size, MPI_CHAR, 0, 0, parentComm);
+
+            if (!can_execute)
             {
                 std::cout << "[" << name << "] ignoring incoming request." << std::endl;
+                continue;
             }
-            else
+
+            char *buffer = nullptr;
+            int len = 0;
+
+            if (itr.hasparameters())
             {
-                char *buffer = nullptr;
-                int len = 0;
+                MPI_Status _mpi_status;
 
-                if (itr.hasparameters())
-                {
-                    MPI_Status _mpi_status;
+                MPI_Probe(MPI_ANY_SOURCE, MPI_ANY_TAG, parentComm, &_mpi_status);
+                MPI_Get_count(&_mpi_status, MPI_CHAR, &len);
 
-                    MPI_Probe(MPI_ANY_SOURCE, MPI_ANY_TAG, parentComm, &_mpi_status);
-                    MPI_Get_count(&_mpi_status, MPI_CHAR, &len);
-
-                    buffer = new char[len];
-                    MPI_Recv(
-                        buffer,
-                        len,
-                        MPI_CHAR,
-                        MPI_ANY_SOURCE,
-                        MPI_ANY_TAG,
-                        parentComm,
-                        MPI_STATUS_IGNORE
-                    );
-                }
-
-                // run the thing //
-                fnMap[itr.function()](buffer, len);
-
-                if (buffer)
-                    delete[] buffer;
+                buffer = new char[len];
+                MPI_Recv(
+                    buffer,
+                    len,
+                    MPI_CHAR,
+                    MPI_ANY_SOURCE,
+                    MPI_ANY_TAG,
+                    parentComm,
+                    MPI_STATUS_IGNORE
+                );
             }
+
+            // run the thing //
+            fnMap[itr.function()](parentComm, buffer, len);
+
+            if (buffer)
+                delete[] buffer;
         }
         else if (ParseTerminateAllChildrenRequestPacket(buffer, sz, tacr))
         {
             // kill currently running task //
             std::cout << "[" << name << "] stopping..." << std::endl;
 
-            packets::TerminateAllChildrenResponse tac_response;
-            tac_response.set_opcode(TerminateAllChildrenResponse_Opcode);
-            tac_response.set_name(name);
-            char *tac_response_buffer = new char[tac_response.ByteSize()];
-            tac_response.SerializeToArray(tac_response_buffer, tac_response.ByteSize());
-            MPI_Send(tac_response_buffer, tac_response.ByteSize(), MPI_CHAR, 0, 0, parentComm);
-            delete[] tac_response_buffer;
-            
+            SerializedPacket pkt;
+            auto response = GetTerminateAllChildrenResponsePacket(name);
+            if (!SerializePacket(response, pkt))
+                std::cout << "[" << name << "] Failed to create terminate response!" << std::endl;
+
+            MPI_Send(pkt.data, pkt.size, MPI_CHAR, 0, 0, parentComm);
             childThreadRunning = false;
             continue;
         }
@@ -246,7 +294,7 @@ void TaskManager::RunChildRoutine()
             std::cout << "[" << name << "] mystery received" << std::endl;
             // call user packet handling routine //
             if (userPacketHandler)
-                userPacketHandler(buffer, sz);
+                userPacketHandler(parentComm, buffer, sz);
         }
     }
 }
@@ -307,22 +355,42 @@ void TaskManager::ListenOnChildren()
                 MPI_STATUS_IGNORE
             );
 
-            packets::ChildComplete ccPkt;
-            packets::TerminateAllChildrenResponse tacr;
+            ChildComplete ccPkt;
+            IssueTaskResponse itr_response;
+            TerminateAllChildrenResponse tacr;
 
             if (ParseChildCompletePacket(buffer, sz, ccPkt))
             {
                 child.status = ChildStatus::Idle;
             }
+            else if (ParseIssueTaskResponsePacket(buffer, sz, itr_response))
+            {
+                if (itr_response.accepted())
+                {
+                    std::cout << "[master] " << itr_response.name() << " has accepted a task." << std::endl;
+                    child.status = ChildStatus::Running;
+                    issueJobDone = true;
+                }
+                else
+                {
+                    std::cout << "[master] " << itr_response.name() << " has rejected a task." << std::endl;
+                }
+
+                childCanDoTask = itr_response.accepted();
+                issueJobCV.notify_all();
+                std::cout << "[master] listener notifying..." << std::endl;
+            }
             else if (ParseTerminateAllChildrenResponsePacket(buffer, sz, tacr))
             {
                 std::cout << "[Master] " << child.name << " marked as terminated." << std::endl;
                 child.status = ChildStatus::Terminated;
+                continueWithTermination = true;
+                terminationCV.notify_all();
             }
             else
             {
                 if (this->userPacketHandler)
-                    this->userPacketHandler(buffer, sz);
+                    this->userPacketHandler(parentComm, buffer, sz);
             }
         }
 
@@ -351,35 +419,30 @@ void TaskManager::TerminateChildren()
     SynchronizeOnChildren();
     std::cout << "terminating..." << std::endl;
 
-    while (true)
+    for (auto& child : children)
     {
-        for (auto& child : children)
+        // reset termination flag for condition variable
+        continueWithTermination = false;
+
+        if (child.status == ChildStatus::Terminated)
+            continue;
+
+        SerializedPacket pkt;
+        auto tacr = GetTerminateAllChildrenRequestPacket();
+
+        if (!SerializePacket(tacr, pkt))
         {
-            if (child.status == ChildStatus::Terminated)
-                continue;
-    
-            SerializedPacket pkt;
-            auto tacr = GetTerminateAllChildrenRequestPacket();
-
-            if (!SerializePacket(tacr, pkt))
-            {
-                std::cout << "[master] failed to init terminate all children req" << std::endl;
-                return;
-            }
-
-            MPI_Send(pkt.data, pkt.size, MPI_CHAR, 0, 0, child.comm);
+            std::cout << "[master] failed to init terminate all children req" << std::endl;
+            return;
         }
 
-        bool all_children_terminated = std::all_of(
-            children.begin(),
-            children.end(),
-            [](const ChildNode& s) { return s.status == ChildStatus::Terminated; }
-        );
+        MPI_Send(pkt.data, pkt.size, MPI_CHAR, 0, 0, child.comm);
 
-        if (all_children_terminated)
-            break;
-
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));    
+        // go to sleep again - wait for response from the listener //
+        std::mutex m;
+        auto& _local_cont_with_term = this->continueWithTermination;
+        std::unique_lock<std::mutex> lk(m);
+        this->terminationCV.wait(lk, [&_local_cont_with_term] { return _local_cont_with_term; });
     }
 
     childListenerRunning = false;

@@ -7,12 +7,13 @@
 #include <memory>
 #include "MpiContext.hpp"
 #include <vector>
+#include <map>
 
 namespace dtl
 {
-    using TaskFunction = std::function<void(void *, size_t)>;
+    using TaskFunction = std::function<void(MPI_Comm, void *, size_t)>;
     using TaskFunctionMap = std::map<std::string, TaskFunction>;
-    using CustomPacketHandler = std::function<void(void *, size_t)>;
+    using CustomPacketHandler = std::function<void(MPI_Comm, void *, size_t)>;
 
     enum ChildStatus
     {
@@ -32,14 +33,18 @@ namespace dtl
         void RegisterFunction(const std::string& name, const TaskFunction& fn);
         void SetPacketCallback(CustomPacketHandler handler);
 
-        bool SpawnChildNode(
-            const std::string& name,
+        bool IssueJob(
+            const std::string& node_name,
             const std::string& fn_name,
             void *data,
             size_t len,
             bool has_parameters = false,
-            bool needs_gpu = false);
+            bool needs_gpu = false,
+            bool spawn_new_node = false
+        ); 
 
+
+        bool SpawnChildNode(const std::string& name);
         void RunChildRoutine();
         void SynchronizeOnChildren();
         void TerminateChildren();
@@ -75,6 +80,13 @@ namespace dtl
         std::vector<ChildNode> children;
         bool childrenIdle;
         std::condition_variable childrenSyncCV;
+
+        bool issueJobDone;
+        bool childCanDoTask;
+        std::condition_variable issueJobCV;
+
+        bool continueWithTermination;
+        std::condition_variable terminationCV; 
 
         // child node specific data //
         std::thread childThread;

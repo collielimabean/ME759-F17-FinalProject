@@ -131,6 +131,7 @@ namespace dtl
         {
             IssueTaskResponse pkt;
             pkt.set_opcode(IssueTaskResponse_Opcode);
+            pkt.set_name(name);
             pkt.set_accepted(accepted);
             return pkt;
         }
