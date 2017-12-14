@@ -1,6 +1,7 @@
 #include <iostream>
 #include "Task.hpp"
 #include "Topic.hpp"
+#include "TaskMaster.hpp"
 
 using namespace dtl;
 
@@ -27,7 +28,7 @@ void jobA(std::shared_ptr<Task> parent)
 }
 
 
-int main(void)
+int main(int argc, char **argv)
 {
     auto startingTask = Task::Create("jobA", nullptr, TaskLocation::Host, jobA);
     startingTask->Run();
