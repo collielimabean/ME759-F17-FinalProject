@@ -1,0 +1,50 @@
+syntax = "proto2";
+package dtl.packets;
+
+
+message ChildInfoRequest
+{
+}
+
+message ChildInfoResponse
+{
+    required string name = 1;
+    required int32 status = 2;    
+    required string currentFn = 3;
+    required bool hasGPU = 4;
+}
+
+message ChildComplete
+{
+    required string name = 1;
+}
+
+message ChildSetInfo
+{
+    required int32 opcode = 1;
+    required string name = 2;
+}
+
+message IssueTaskRequest
+{
+    required int32 opcode = 1;
+    required string name = 2;
+    required string function = 3;
+    required bool needsGPU = 4;
+    required bool hasParameters = 5;
+}
+
+message IssueTaskResponse
+{
+    required bool accepted = 1;
+}
+
+message TerminateAllChildrenRequest
+{
+    required int32 opcode = 1;
+}
+
+message TerminateAllChildrenResponse
+{
+    required string name = 1;
+}

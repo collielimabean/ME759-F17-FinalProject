@@ -1,74 +1,84 @@
 #pragma once
 
+#include <mpi.h>
+#include <condition_variable>
+#include <thread>
 #include <string>
-#include <map>
 #include <memory>
-
-#include "cxxopts.hpp"
+#include <google/protobuf/message.h>
 #include "MpiContext.hpp"
-#include "Task.hpp"
-
 
 namespace dtl
 {
-    using TaskFunction = std::function<void(std::shared_ptr<Task>)>;
+    using TaskFunction = std::function<void(void *, size_t)>;
     using TaskFunctionMap = std::map<std::string, TaskFunction>;
-    
+    using CustomPacketHandler = std::function<void(void *, size_t)>;
 
-    class TaskMaster
+    enum ChildStatus
+    {
+        Idle, Running, Terminated
+    };
+
+    class TaskManager
     {
     public:
-        TaskMaster()
-        {
-        }
+        static TaskManager& GetInstance(const std::string& name, int argc, char **argv);
 
-        bool Initialize(const int argc, const char **argv, const TaskFunctionMap& map)
-        {
-            context.Initialize(&argc, &argv);
-            if (!context)
-                return false;
+        void SetName(const std::string& new_name);
+        explicit operator bool() const;
+        bool HasGPU();
+        bool IsMaster() const;
+        void SetFunctionMap(const TaskFunctionMap& map);
+        void RegisterFunction(const std::string& name, const TaskFunction& fn);
+        void SetPacketCallback(CustomPacketHandler handler);
 
-            try
-            {
-                cxxopts::Options options("", "");
-                options.add_options()
-                    ("__child_process__", "[Internal] Mark this as a child process.")
-                ;
+        bool SpawnChildNode(
+            const std::string& name,
+            const std::string& fn_name,
+            void *data,
+            size_t len,
+            bool has_parameters = false,
+            bool needs_gpu = false);
 
-                auto result = options.parse(argc, argv);
-                this->is_master = result["__child_process__"].count() == 0;
-                this->fnMap = map;
-            }
-            catch (const cxxopts::OptionException& e)
-            {
-                return false;
-            }
-
-            return true;
-        }
-
-        void ListenForInstructions()
-        {
-        }
-
-        bool IsMaster() const 
-        {
-            return this->is_master;
-        }
-
-        const mpi::MpiContext& GetContext() const
-        {
-            return this->context;
-        }
-
-        explicit operator bool() const 
-        {
-			return static_cast<bool>(context);
-		}
+        void RunChildRoutine();
+        void SynchronizeOnChildren();
+        void TerminateChildren();
 
     private:
-        mpi::MpiContext context;
-        TaskFunctionMap fnMap;
+        TaskManager(const std::string& name, int argc, char **argv);
+        ~TaskManager();
+
+        void ListenOnChildren();
+
+        struct ChildNode
+        {
+            std::string name;
+            ChildStatus status;
+            MPI_Comm comm;
+        };
+
+        // common data //
+        std::string name;
         bool is_master;
+        MPI_Comm parentComm;
+        std::unique_ptr<bool> hasGpu;
+        TaskFunctionMap fnMap;
+        mpi::MpiContext context;
+        bool is_valid_instance;
+        std::string program_name;
+
+        // child listener 
+        std::thread childListenerThread;
+        bool childListenerRunning;
+
+        // master specific data //
+        std::vector<ChildNode> children;
+        bool childrenIdle;
+        std::condition_variable childrenSyncCV;
+
+        // child node specific data //
+        std::thread childThread;
+        bool childThreadRunning;
+        CustomPacketHandler userPacketHandler;
     };
 }
