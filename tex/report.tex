@@ -1,0 +1,91 @@
+\documentclass[11pt]{article}
+\usepackage{fullpage}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{gensymb}
+\usepackage{graphicx}
+\usepackage{cancel}
+\usepackage{hyperref}
+\usepackage{tikz}
+\hypersetup{
+	colorlinks,
+	citecolor=black,
+	filecolor=black,
+	linkcolor=blue,
+	urlcolor=black
+}
+
+\usetikzlibrary{calc}
+
+\title{\vspace{10em}ME 759 Final Project Report \\ Default Project 1: Distributed Task Library}
+\author{William Jen \\ University of Wisconsin-Madison}
+\date{December 2017}
+
+\begin{document}
+	\maketitle
+
+	\pagebreak
+	\section{Abstract}
+	
+	\pagebreak
+	\tableofcontents
+	\pagebreak
+	
+	\section{Introduction}
+		Default Project 1 was described as an "OpenMP-based parallel and decoupled mechanism for
+		asynchronous update of an on-going process.". In other words, a parent job $P$ may run in 
+		a loop. Within that loop, it may spawn children tasks $C_1 \ldots C_n$ that can be run on either
+		the same machine in a different thread or a separate machine entirely. Furthermore, these tasks may
+		use GPU acceleration, so if a child task is set to run on a different machine, it must be run on a 
+		machine with a GPU. Additionally, the parent task $P$ must not advance to the next iteration of the loop
+		before all of its children tasks have completed. The goal of this project is to define a software framework 
+		that will allow the programmer to spawn child tasks on the location of their choice (same host, new host, 
+		GPU-enabled host) with the ability to wait for children tasks.
+	
+	\section{Design}
+		The Distributed Task Library breaks this project into two parts: task running on the local machine and 
+		task running on remote machines. To maximize portability, cross-platform libraries and technologies 
+		were selected, such as C++11 threads, OpenMPI, and Google Protobuf. The main idea behind this library
+		was to allow the programmer to specify function pointers to their code, and have the library take care of
+		the rest. 
+
+		\subsection{Creating Jobs Locally}
+			\subsubsection{Overview}
+			
+			\subsubsection{Creating and Running New Tasks}
+			
+			\subsubsection{Task Class Reference}
+			
+			
+		\subsection{Creating Jobs Remotely}
+			\subsubsection{Overview}	
+				To issue jobs to different machines, MPI was used as the middleware to communicate with remote machines.
+				This is superior to a custom-made server-client solution as MPI makes it easy to run programs on multiple machines.
+				That being said, most MPI programs are run with a known number of nodes because it is specified as an argument via
+				mpirun. However, for this library, we must spawn nodes dynamically as the user requests them. We define a
+				\textit{master} node, who has the ability to spawn new children nodes who can be issued computational tasks. The
+				master is also able to wait for the children to complete and query their status. 
+				
+				Once a child node has been spawned, there is no restriction on what it may run. It may run any CPU or GPU code, but
+				may not spawn additional MPI children nodes, although nothing is stopping the programmer from directly accessing the 
+				MPI API. Custom packets were created using Google Protobuf to communicate commands, data, and notifications between the
+				master and its children.
+				 
+			\subsubsection{Spawning New MPI Children Nodes}
+				Spawning new MPI nodes dynamically is somewhat tricky. MPI\_Comm\_Spawn will create a new node that can retrieve the
+				parent's communicator, but each newly spawned set of nodes will have its own unique communicator. Because this library
+				allows the user to spawn nodes one at a time, we must keep track of each child node's communicator. Furthermore, we 
+				must asynchronously probe each child communicator to check if any messages are waiting for us.
+			
+			\subsubsection{Issuing Commands to Children}
+				
+			
+			\subsubsection{Children Synchronization and Termination}
+		
+			\subsubsection{TaskManager Class Reference}
+
+	\section{Experimental Setup}
+	\section{Results}
+	\section{Discussion}
+	\section{Conclusion}
+\end{document}
