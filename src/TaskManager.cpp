@@ -3,6 +3,7 @@
 #include <cuda_runtime.h>
 #include "commands.pb.h"
 #include "Packets.hpp"
+#include "util.hpp"
 #include <mutex>
 
 using namespace dtl;
@@ -89,8 +90,7 @@ bool TaskManager::IssueJob(
     void *data,
     size_t len,
     bool has_parameters,
-    bool needs_gpu,
-    bool spawn_new_node
+    bool needs_gpu
 )
 {
     if (!is_master)
@@ -133,11 +133,6 @@ bool TaskManager::IssueJob(
         // send data //
         if (data)
             MPI_Ssend(data, len, MPI_CHAR, 0, 0, child.comm);
-    }
-
-    if (spawn_new_node)
-    {
-        // XXX TODO
     }
 
     return true;
@@ -187,6 +182,9 @@ void TaskManager::RunChildRoutine()
 
     if (is_master)
         return;
+
+    // set name to default //
+    this->name = GetComputerName();
 
     childThreadRunning = true;
 
@@ -292,6 +290,7 @@ void TaskManager::RunChildRoutine()
         else
         {
             std::cout << "[" << name << "] mystery received" << std::endl;
+
             // call user packet handling routine //
             if (userPacketHandler)
                 userPacketHandler(parentComm, buffer, sz);

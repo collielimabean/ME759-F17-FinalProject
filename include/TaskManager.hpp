@@ -41,8 +41,7 @@ namespace dtl
             bool has_parameters = false,
             bool needs_gpu = false,
             bool spawn_new_node = false
-        ); 
-
+        );
 
         bool SpawnChildNode(const std::string& name);
         void RunChildRoutine();

@@ -20,6 +20,7 @@ message ChildComplete
 {
     required int32 opcode = 1;
     required string name = 2;
+    required bool hasReturnData = 3;
 }
 
 message ChildSetInfo

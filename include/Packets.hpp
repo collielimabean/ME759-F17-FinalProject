@@ -89,12 +89,14 @@ namespace dtl
         }
 
         ChildComplete GetChildCompletePacket(
-            const std::string& name
+            const std::string& name,
+            bool hasReturnData
         )
         {
             ChildComplete pkt;
             pkt.set_opcode(ChildComplete_Opcode);
             pkt.set_name(name);
+            pkt.set_hasreturndata(hasReturnData);
             return pkt;
         }
 
