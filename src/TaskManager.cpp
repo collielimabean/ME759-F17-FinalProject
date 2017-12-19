@@ -39,6 +39,13 @@ TaskManager::~TaskManager()
     childListenerRunning = false;
     if (childListenerThread.joinable())
         childListenerThread.join();
+
+    if (parentComm != MPI_COMM_NULL 
+        && parentComm != MPI_COMM_WORLD 
+        && parentComm != MPI_COMM_SELF)
+    {
+        MPI_Comm_disconnect(&parentComm);
+    }
 }
 
 void TaskManager::SetName(const std::string& new_name)
@@ -133,6 +140,8 @@ bool TaskManager::IssueJob(
         // send data //
         if (data)
             MPI_Ssend(data, len, MPI_CHAR, 0, 0, child.comm);
+
+        break;
     }
 
     return true;
@@ -225,9 +234,13 @@ void TaskManager::RunChildRoutine()
                 << itr.needsgpu() << " "
                 << itr.hasparameters() << std::endl;
 
-            bool can_execute = (name.compare(itr.name()) != 0 && name.length() != 0)
-                || fnMap.find(itr.function()) == fnMap.end()
-                || itr.needsgpu() && HasGPU();
+            // can exec if: name match or name is empty
+            // function name must exist
+            // if task needs gpu, make sure we have a gpu
+            bool can_execute = 
+                ((name.compare(itr.name()) == 0 ) || itr.name().length() == 0)
+                && (fnMap.find(itr.function()) != fnMap.end())
+                && !(itr.needsgpu() && !HasGPU());
 
             // notify parent //
             SerializedPacket pkt;
@@ -368,7 +381,6 @@ void TaskManager::ListenOnChildren()
                 {
                     std::cout << "[master] " << itr_response.name() << " has accepted a task." << std::endl;
                     child.status = ChildStatus::Running;
-                    issueJobDone = true;
                 }
                 else
                 {
@@ -376,6 +388,7 @@ void TaskManager::ListenOnChildren()
                 }
 
                 childCanDoTask = itr_response.accepted();
+                issueJobDone = true;
                 issueJobCV.notify_all();
                 std::cout << "[master] listener notifying..." << std::endl;
             }
@@ -391,6 +404,8 @@ void TaskManager::ListenOnChildren()
                 if (this->userPacketHandler)
                     this->userPacketHandler(parentComm, buffer, sz);
             }
+
+            delete[] buffer;
         }
 
         bool all_children_idle = std::all_of(

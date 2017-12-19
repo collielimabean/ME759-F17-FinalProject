@@ -40,6 +40,12 @@ void child_fn(MPI_Comm parent, void *data, size_t len)
     delete[] hostAfter;
 }
 
+void test_fn(MPI_Comm parent, void *data, size_t len)
+{
+    std::this_thread::sleep_for(std::chrono::seconds(3));
+    std::cout << "[test_fn] called!" << std::endl;
+}
+
 int main(int argc, char **argv)
 {
     auto& manager = dtl::TaskManager::GetInstance("master", argc, argv);
@@ -52,20 +58,21 @@ int main(int argc, char **argv)
 
     // init map //
     manager.RegisterFunction("child_fn", child_fn);
+    manager.RegisterFunction("test_fn", test_fn);
 
     if (!manager.IsMaster())
     {
         // will block if child //
-        std::cout << "Child!" << std::endl;
         manager.RunChildRoutine();
         return 0;
     }
 
-    std::cout << "Master!" << std::endl;
-
     // spin off child process //
-    bool ok = manager.SpawnChildNode("New Node");
-    std::cout << "Spawn: " << ok << std::endl;
+    bool ok = manager.SpawnChildNode("Node 1");
+    std::cout << "Node 1 spawn ok? " << ok << std::endl;
+
+    ok = manager.SpawnChildNode("Node 2");
+    std::cout << "Node 2 spawn ok? " << ok << std::endl;
 
     int *data = new int[1024];
     for (int i = 0; i < 1024; i++)
@@ -80,14 +87,15 @@ int main(int argc, char **argv)
         true,
         true
     );
-    
-    std::cout << "Issue: " << ok << std::endl;
 
-    if (!ok)
-    {
-        std::cout << "Failed!" << std::endl;
-        return 1;
-    }
+    std::cout << "child_fn issue: " << ok << std::endl;
+
+    ok = manager.IssueJob(
+        "",
+        "test_fn",
+        nullptr,
+        0
+    );
 
     // synchronize //
     manager.SynchronizeOnChildren();
