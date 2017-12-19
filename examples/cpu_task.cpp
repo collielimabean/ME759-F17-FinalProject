@@ -16,9 +16,9 @@ void jobA(std::shared_ptr<Task> parent)
     for (int i = 0; i < 3; i++)
     {
         std::cout << "Iteration " << i << std::endl;
-        auto child = Task::Create("jobB", parent, TaskLocation::Host, jobB);
+        auto child = Task::Create("jobB", parent, jobB);
         child->Run();
-        parent->Synchronize();
+        parent->WaitForChildren();
         std::cout << "-------" << std::endl;
     }
 
@@ -28,10 +28,8 @@ void jobA(std::shared_ptr<Task> parent)
 
 int main()
 {
-    auto startingTask = Task::Create("jobA", nullptr, TaskLocation::Host, jobA);
+    auto startingTask = Task::Create("jobA", nullptr, jobA);
     startingTask->Run();
-
-    char x;
-    std::cin >> x;
+    startingTask->Wait();
     return 0;
 }

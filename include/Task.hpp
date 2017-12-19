@@ -13,11 +13,6 @@
 
 namespace dtl
 {
-    enum class TaskLocation
-    {
-        Host, GPU
-    };
-
     enum class TaskStatus
     {
         Init, Running, Waiting, Done
@@ -27,12 +22,16 @@ namespace dtl
     {
     public:
 
-        static std::shared_ptr<Task> Create(const std::string& name, std::shared_ptr<Task> parent, TaskLocation location, const std::function<void(std::shared_ptr<Task>)>& f)
+        static std::shared_ptr<Task> Create(
+            const std::string& name,
+            std::shared_ptr<Task> parent,
+            const std::function<void(std::shared_ptr<Task>)>& f
+        )
         {
             if (parent)
-                return parent->AddChildTask(name, location, f);
+                return parent->AddChildTask(name, f);
             else
-                return std::shared_ptr<Task>(new Task(name, nullptr, location, f));
+                return std::shared_ptr<Task>(new Task(name, nullptr, f));
         }
 
         void Run()
@@ -43,25 +42,25 @@ namespace dtl
             // run the function //
             std::cout << task_name << ": Running..." << std::endl;
             this->status = TaskStatus::Running;
-
             this->taskThread = std::thread(&Task::_task_runner_shim, this);
         }
 
-        void Synchronize()
+        void Wait()
+        {
+            while (this->status == TaskStatus::Running)
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+
+        void WaitForChildren()
         {
             if (this->status != TaskStatus::Running)
                 return;
-            
+
             // block until children complete //
             std::mutex m;
             auto& children_done = this->childrenComplete;
             std::unique_lock<std::mutex> lk(m);
             this->childrenSyncCV.wait(lk, [&children_done] { return children_done; });
-        }
-
-        TaskLocation GetLocation() const noexcept
-        {
-            return this->location;
         }
 
         TaskStatus GetStatus() const noexcept
@@ -75,19 +74,18 @@ namespace dtl
         }
 
     private:
-        Task(const std::string& name, std::shared_ptr<Task> parent, TaskLocation location, const std::function<void(std::shared_ptr<Task>)>& function)
+        Task(const std::string& name, std::shared_ptr<Task> parent, const std::function<void(std::shared_ptr<Task>)>& function)
         {
             this->task_name = name;
             this->parentTask = parent;
             this->status = TaskStatus::Init;
-            this->location = location;
             this->function = function;
             this->childrenComplete = true; // no children - empty //
         }
 
-        std::shared_ptr<Task> AddChildTask(const std::string& name, TaskLocation loc, const std::function<void(std::shared_ptr<Task>)>& f)
+        std::shared_ptr<Task> AddChildTask(const std::string& name, const std::function<void(std::shared_ptr<Task>)>& f)
         {
-            std::shared_ptr<Task> new_task(new Task(name, shared_from_this(), loc, f));
+            std::shared_ptr<Task> new_task(new Task(name, shared_from_this(), f));
             this->childrenTasks.push_back(new_task);
             this->childrenComplete = false;
             return new_task;
@@ -96,10 +94,15 @@ namespace dtl
         void CheckIfChildrenComplete()
         {
             childrenCheckMutex.lock();
-            auto done = std::all_of(childrenTasks.begin(), childrenTasks.end(), [](const std::shared_ptr<Task> t) { return t->GetStatus() == TaskStatus::Done; });
+            auto done = std::all_of(
+                childrenTasks.begin(),
+                childrenTasks.end(),
+                [](const std::shared_ptr<Task> t) { return t->GetStatus() == TaskStatus::Done; }
+            );
 
             if (done)
             {
+                std::cout << task_name << ": children complete!" << std::endl;
                 childrenComplete = done;
                 childrenSyncCV.notify_all();
             }
@@ -118,10 +121,13 @@ namespace dtl
             // any children? if so, wait for them //
             if (!childrenComplete)
             {
+                std::cout << task_name << ": waiting for children..." << std::endl;
                 std::mutex m;
                 auto& children_done = this->childrenComplete;
                 std::unique_lock<std::mutex> lk(m);
                 this->childrenSyncCV.wait(lk, [&children_done] { return children_done; });
+
+                std::cout << task_name << ": children done!" << std::endl;
             }
 
             // our children are done, so we are done too //
@@ -141,7 +147,6 @@ namespace dtl
         // members //
         std::string task_name;
         TaskStatus status;
-        TaskLocation location;
         std::shared_ptr<Task> parentTask;
         std::vector<std::shared_ptr<Task>> childrenTasks;
         std::function<void(std::shared_ptr<Task>)> function;
