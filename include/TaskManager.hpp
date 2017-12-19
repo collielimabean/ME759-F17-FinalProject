@@ -39,8 +39,7 @@ namespace dtl
             void *data,
             size_t len,
             bool has_parameters = false,
-            bool needs_gpu = false,
-            bool spawn_new_node = false
+            bool needs_gpu = false
         );
 
         bool SpawnChildNode(const std::string& name);

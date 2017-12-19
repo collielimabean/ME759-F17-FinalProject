@@ -13,8 +13,8 @@ cpu_task:
 mpi_task:
 	mkdir -p gen
 	protoc -I=include/ --proto_path=src/ --cpp_out=gen/  src/*.proto
-	nvcc -c $(INCLUDES) -g -G `mpicxx -showme:compile | sed 's/-pthread//g'` -std=c++11 src/*.cpp gen/*.pb.cc examples/mpi_task.cpp
-	nvcc -g -G -lm -lcudart -L/usr/lib/openmpi/lib -lmpi_cxx -lmpi -lopen-rte -lprotobuf -lopen-pal -ldl -lnsl -lutil -lm *.o -o $@ -g 
+	nvcc -c $(INCLUDES) -g -G `mpicxx -showme:compile | sed 's/-pthread//g'` -std=c++11 /usr/local/protobuf/3.5.0/lib/libprotobuf.a src/*.cpp gen/*.pb.cc examples/mpi_task.cu -ccbin=$(CU_CCBIN)
+	nvcc -std=c++11 -g -G -lm -lcudart -L/usr/lib/openmpi/lib -lmpi -lopen-rte -lopen-pal -ldl -lnsl -lutil -lm *.o  /usr/local/protobuf/3.5.0/lib/libprotobuf.a -o $@ 
 
 .PHONY: clean
 clean:
