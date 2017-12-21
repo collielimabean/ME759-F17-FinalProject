@@ -8,7 +8,7 @@ EXECS := mpi_task cpu_task
 all : Makefile $(EXECS)
 
 cpu_task:
-	g++ $(INCLUDES) -g `mpicxx -showme:compile` -Wall -Wextra -pedantic -std=c++11 -o cpu_task examples/cpu_task.cpp
+	g++ $(INCLUDES) -g `mpicxx -showme:compile` -Wall -Wextra -pedantic -std=c++11 -o cpu_task examples/cpu_task.cpp src/Task.cpp
 
 mpi_task:
 	mkdir -p gen

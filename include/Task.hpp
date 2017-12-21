@@ -21,7 +21,6 @@ namespace dtl
     class Task : public std::enable_shared_from_this<Task>
     {
     public:
-
         static std::shared_ptr<Task> Create(
             const std::string& name,
             std::shared_ptr<Task> parent,
@@ -41,7 +40,6 @@ namespace dtl
             std::shared_ptr<Task> parent,
             const std::function<void(std::shared_ptr<Task>)>& function
         );
-
 
         std::shared_ptr<Task> AddChildTask(
             const std::string& name,
